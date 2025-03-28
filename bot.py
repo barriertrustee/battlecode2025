@@ -47,7 +47,7 @@ def turn():
 
 
 def run_tower():
-    if (turn_count % 40 == 20 or and get_type() == UnitType.LEVEL_ONE_MONEY_TOWER:
+    if turn_count % 100 == 50 and get_round_num() < 500 and get_type() == UnitType.LEVEL_ONE_MONEY_TOWER:
         disintegrate()
         log(f"Disintegrate tower at ({get_location().x}, {get_location().y})")
 
