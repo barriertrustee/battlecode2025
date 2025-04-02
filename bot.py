@@ -135,7 +135,7 @@ def init():
 
 
 def turn():
-    random.seed(get_id() - get_time_elapsed())
+    random.seed(get_id() * get_time_left() * get_bytecodes_left())
     """
     MUST be defined for robot to run
     This function will be called at the beginning of every turn and should contain the bulk of your robot commands
@@ -149,7 +149,7 @@ def turn():
         init()
 
     if robo_type.is_robot_type() and (
-        turn_count % 50 == 0
+        turn_count % 50 == 49
         or get_location().distance_squared_to(
             targets[get_type() != UnitType.Soldier][target_idx]
         )
@@ -176,6 +176,10 @@ def run_tower(tower_type: UnitType):
     attack_robots()
     if tower_type == UnitType.LEVEL_ONE_MONEY_TOWER:
         run_lvl_1_money_tower()
+    if is_paint_tower(tower_type):
+        run_paint_tower()
+    if is_defense_tower(tower_type):
+        run_defense_tower()
 
 
 def run_lvl_1_money_tower():
@@ -190,6 +194,15 @@ def run_lvl_1_money_tower():
 def run_paint_tower():
     if get_chips() > 10000 and can_upgrade_tower(get_location()):
         upgrade_tower(get_location())
+
+def run_defense_tower():
+    if (
+        (turn_count > 50)
+        and get_chips() > 2500
+        and not check_enemy_paint_in_ruins_pattern(get_location())
+    ):
+        disintegrate()
+
 
 
 def spawn_robots():
@@ -246,6 +259,7 @@ def run_soldier():
             tile.has_ruin()
             and not check_tower(tile)
             and not check_enemy_paint_in_ruins_pattern(tile.get_map_location())
+            and num_of_soldier_within_pattern(tile.get_map_location()) < 4
         ):
             cur_ruin = tile
 
@@ -255,13 +269,15 @@ def run_soldier():
             (directions.index(get_location().direction_to(target_loc)) + 2)
             % len(directions)
         ]
-        run_bug0(target_loc.add(dir))
+        run_bug1(target_loc.add(dir))
 
         ruins_pattern_type = check_ruins_mark(cur_ruin.get_map_location())
         if ruins_pattern_type == None:
             ruins_pattern_type = UnitType.LEVEL_ONE_MONEY_TOWER
-            if random.randint(0, 1) == 0 and get_num_towers() > 4:
+            if random.randint(0, 1) == 0 and get_num_towers() > 3:
                 ruins_pattern_type = UnitType.LEVEL_ONE_PAINT_TOWER
+            if random.randint(0, 4) == 0 and get_num_towers() > 5:
+                ruins_pattern_type = UnitType.LEVEL_ONE_DEFENSE_TOWER
             mark_tower(cur_ruin.get_map_location(), ruins_pattern_type)
         else:
             complete_pattern(cur_ruin.get_map_location(), ruins_pattern_type)
@@ -308,7 +324,7 @@ def run_splasher():
     non_ally_tiles = [None] * len(nearby_tiles)
     num_non_ally_tiles = 0
     for tile in nearby_tiles:
-        if not tile.get_paint().is_ally():
+        if not tile.get_paint().is_ally() and tile.is_passable():
             non_ally_tiles[num_non_ally_tiles] = tile
             num_non_ally_tiles = num_non_ally_tiles + 1
 
