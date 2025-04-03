@@ -397,6 +397,8 @@ def splasher_attack():
             splash_heur[x][y] = -2
         elif tile.get_paint() == PaintType.EMPTY:
             splash_heur[x][y] = 1
+        elif tile.get_paint() == PaintType.ALLY_SECONDARY:
+            splash_heur[x][y] = 20
         else:
             splash_heur[x][y] = 10
 
@@ -412,7 +414,7 @@ def splasher_attack():
             for dx in range(-1, 2):
                 for dy in range(-1, 2):
                     sum_heur += splash_heur[x + dx][y + dy]
-            if best_attack_heur == None or best_attack_heur < sum_heur:
+            if sum_heur >= 50 and (best_attack_heur == None or best_attack_heur < sum_heur):
                 best_attack_loc = MapLocation(x + get_location().x - 3, y + get_location().y - 3)
                 best_attack_heur = sum_heur
 
