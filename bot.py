@@ -9,17 +9,8 @@ from battlecode25.stubs import *
 # Globals
 margin_x = get_location().x
 margin_y = get_location().y
-mid_x = None
-mid_y = None
-if get_map_width() % 2 == 1:
-    mid_x = get_map_width() // 2
-else:
-    mid_x = (get_map_width() // 2) - 1
-
-if get_map_height() % 2 == 1:
-    mid_y = get_map_height() // 2
-else:
-    mid_y = (get_map_height() // 2) - 1
+mid_x = (get_map_width() // 2) - 1
+mid_y = (get_map_height() // 2) - 1
 directions = [
     Direction.NORTH,
     Direction.NORTHEAST,
@@ -86,6 +77,9 @@ targets = [
         MapLocation(get_map_width() - 1, 0),
     ],
 ]
+prev_pos = [MapLocation(-1, -1)] * 5
+prev_target = MapLocation(0, 0)
+obstacle_start_dist = 0
 is_tracing = False
 tracing_dir = None
 min_dist = 10000
@@ -135,7 +129,7 @@ def init():
 
 
 def turn():
-    random.seed(get_id() * get_time_left() * get_bytecodes_left())
+    random.seed(get_id() * get_time_left())
     """
     MUST be defined for robot to run
     This function will be called at the beginning of every turn and should contain the bulk of your robot commands
@@ -195,6 +189,7 @@ def run_paint_tower():
     if get_chips() > 10000 and can_upgrade_tower(get_location()):
         upgrade_tower(get_location())
 
+
 def run_defense_tower():
     if (
         (turn_count > 50)
@@ -202,7 +197,6 @@ def run_defense_tower():
         and not check_enemy_paint_in_ruins_pattern(get_location())
     ):
         disintegrate()
-
 
 
 def spawn_robots():
@@ -294,7 +288,6 @@ def run_soldier():
     if get_round_num() > 300:
         buld_srp()
     run_bug0(targets[get_type() != UnitType.Soldier][target_idx])
-
     return
 
 
@@ -311,12 +304,69 @@ def run_mopper():
     enemy_tile = enemy_tiles[random.randint(0, len(enemy_tiles) - 1)]
     if enemy_tile is not None:
         target_loc = enemy_tile.get_map_location()
-        run_bug1(target_loc)
         if can_attack(enemy_tile.get_map_location()):
             attack(enemy_tile.get_map_location())
 
-    run_bug0(targets[get_type() != UnitType.Soldier][target_idx])
+    run_bug2(targets[get_type() != UnitType.Soldier][target_idx])
+    # mopper_mop()
     return
+
+
+def mopper_mop():
+    
+    enemy_bots = [[None] * 3 for i in range(0, 3)]
+    nearby_robots = sense_nearby_robots(radius_squared=2)
+    for robot in nearby_robots:
+        x = robot.get_location().x - get_location().x + 1
+        y = robot.get_location().y - get_location().y + 1
+        enemy_bots[x][y] = robot
+    best_do_mop_swing = False
+    best_mop_dir = None
+    best_mop_heur = None
+    for dir in directions:
+        if not can_attack(get_location().add(dir)):
+            continue
+
+        nearby_tiles = sense_nearby_map_infos(get_location().add(dir), 8)
+        num_ruins_nearby = 0
+        for tile in nearby_tiles:
+            if tile.has_ruin():
+                num_ruins_nearby += 1
+
+        mop_heur = 25 + 100 if num_ruins_nearby > 0 else 0
+        valid_dir = [dir]
+        do_mop_swing = False
+
+        if is_cardinal_dir(dir) and can_mop_swing(dir):
+            valid_dir = [dir.rotate_left(), dir, dir.rotate_right()]
+
+        for dir_p in valid_dir:
+            x = dir_p.get_dx() + 1
+            y = dir_p.get_dy() + 1
+
+            if enemy_bots[x][y] != None:
+                mop_heur += 75
+                if enemy_bots[x][y].get_paint_amount() < 10:
+                    mop_heur += 100
+
+                if dir_p != dir:
+                    do_mop_swing = True
+
+        if best_mop_heur == None or mop_heur > best_mop_heur:
+            best_mop_heur = mop_heur
+            best_mop_dir = dir
+            best_do_mop_swing = do_mop_swing
+
+    log(f"Best heuristic for mopper is {best_mop_dir}")
+    if best_mop_heur != None:
+        if best_do_mop_swing and can_mop_swing(best_mop_dir):
+            mop_swing(best_mop_dir)
+            log(f"{get_type()} mop swing in the {best_mop_dir} directions")
+            set_timeline_marker("Mopper mop swing", 0, 0, 255)
+        elif can_attack(get_location().add(dir)):
+            attack(get_location().add(dir))
+            log(f"{get_type()} attack at {get_location().add(dir)}")
+            set_timeline_marker("Mopper attacked", 255, 0, 255)
 
 
 def run_splasher():
@@ -331,21 +381,53 @@ def run_splasher():
     non_ally_tile = non_ally_tiles[random.randint(0, len(non_ally_tiles) - 1)]
 
     if non_ally_tile is not None:
-        target_loc = non_ally_tile.get_map_location()
-        run_bug1(target_loc)
         if can_attack(non_ally_tile.get_map_location()):
             attack(non_ally_tile.get_map_location())
 
-    run_bug0(targets[get_type() != UnitType.Soldier][target_idx])
+    run_bug2(targets[get_type() != UnitType.Soldier][target_idx])
+    # splasher_attack()
+    return
+
+
+def splasher_attack():
+    splash_heur = [[0] * 7 for _ in range(0, 7)]
+    nearby_tiles = sense_nearby_map_infos(radius_squared=18)
+    for tile in nearby_tiles:
+        x = tile.get_map_location().x - get_location().x + 3
+        y = tile.get_map_location().y - get_location().y + 3
+        if not inside_range(x, y, 7, 7):
+            continue
+        if tile.get_paint().is_ally() or tile.is_wall():
+            splash_heur[x][y] = -2
+        elif tile.get_paint() == PaintType.EMPTY:
+            splash_heur[x][y] = 1
+        else:
+            splash_heur[x][y] = 10
+    best_attack_loc = MapLocation(-1, -1)
+    best_attack_heur = None
+    for x in range(1, len(splash_heur) - 1):
+        for y in range(1, len(splash_heur[0]) - 1):
+            if not can_attack(MapLocation(x, y)):
+                continue
+            sum_heur = 0
+            for dx in range(-1, 2):
+                for dy in range(-1, 2):
+                    sum_heur += splash_heur[x + dx][y + dy]
+            if best_attack_heur == None or best_attack_heur < sum_heur:
+                best_attack_loc = MapLocation(x, y)
+                best_attack_heur = sum_heur
+
+    if best_attack_loc != MapLocation(-1, -1) and can_attack(best_attack_loc):
+        attack(best_attack_loc)
+        log(f"{get_type()} attack at {best_attack_loc}")
+        set_timeline_marker("Splasher attacked", 255, 0, 0)
     return
 
 
 # miscellaneous
 
 
-def inside_pattern_range(
-    row_pos: int, col_pos: int, width: int = 5, height: int = 5
-) -> bool:
+def inside_range(row_pos: int, col_pos: int, width: int = 5, height: int = 5) -> bool:
     return 0 <= row_pos and row_pos < width and 0 <= col_pos and col_pos < height
 
 
@@ -353,6 +435,15 @@ def max(a: int, b: int) -> int:
     if a > b:
         return a
     return b
+
+
+def is_cardinal_dir(dir: Direction):
+    return (
+        dir == Direction.NORTH
+        or dir == Direction.SOUTH
+        or dir == Direction.EAST
+        or dir == Direction.WEST
+    )
 
 
 def is_paint_tower(tower_type: UnitType) -> bool:
@@ -414,7 +505,7 @@ def check_enemy_paint_in_ruins_pattern(ruin_loc: MapLocation) -> bool:
         row_pos = target_loc.x - ruin_loc.x + 2
         col_pos = target_loc.y - ruin_loc.y + 2
 
-        if inside_pattern_range(row_pos, col_pos):
+        if inside_range(row_pos, col_pos):
             if pattern_tile.get_paint().is_enemy():
                 return True
 
@@ -483,7 +574,7 @@ def paint_pattern(ruin_loc: MapLocation, tower_type: UnitType):
         if not can_attack(pattern_tile.get_map_location()):
             continue
 
-        if not inside_pattern_range(row_pos, col_pos):
+        if not inside_range(row_pos, col_pos):
             if not pattern_tile.get_paint().is_ally():
                 attack(get_location())
             continue
@@ -559,11 +650,65 @@ def num_of_soldier_within_pattern(ruin_loc: MapLocation) -> int:
 # pathfinding
 
 
-def run_bug0(target: MapLocation):
-    current_pos = get_location()
+def moving_micro(dir: Direction, target: MapLocation) -> int:
+    next_loc = get_location().add(dir)
+    score = -prev_pos.count(next_loc)
+    target_dir = get_location().direction_to(target)
+    if target_dir == dir:
+        score += 20
+    if dir == target_dir.rotate_left() or dir == target_dir.rotate_right():
+        score += 15
+    mopper_penalty = 2 if get_type() == UnitType.MOPPER else 1
+    if sense_map_info(next_loc).get_paint() == PaintType.EMPTY:
+        score -= 10 * mopper_penalty
+    if sense_map_info(next_loc).get_paint().is_enemy():
+        score -= 5 * mopper_penalty
+    nearby_robots = sense_nearby_robots()
+    num_ally_robot = 0
+    num_enemy_tower = 0
+    enemy_mopper_presence = 0
+    for robot in nearby_robots:
+        if (
+            robot.get_team() == get_team()
+            and robot.get_location().is_within_distance_squared(next_loc, 2)
+        ):
+            num_ally_robot += 1
+        if (
+            robot.get_team() != get_team()
+            and robot.get_type().is_tower_type()
+            and robot.get_location().is_within_distance_squared(
+                next_loc, 16 if is_defense_tower(robot.get_type()) else 9
+            )
+        ):
+            num_enemy_tower += 1
+        if (
+            robot.get_team() != get_team()
+            and robot.get_type() == UnitType.MOPPER
+            and robot.get_location().is_within_distance_squared(next_loc, 2)
+        ):
+            enemy_mopper_presence = 1
+    score -= num_ally_robot * 5 + num_enemy_tower * 20 + enemy_mopper_presence * 20
+    return score
 
+
+def choose_best_dir(target_loc: MapLocation) -> Direction:
+    best_dir = Direction.CENTER
+    best_mircro = 0
+    for dir in directions:
+        if not can_move(dir):
+            continue
+        micro = moving_micro(dir, target_loc)
+        if best_dir == Direction.CENTER or best_mircro < micro:
+            best_dir = dir
+            best_mircro = micro
+
+    return best_dir
+
+
+def run_bug0(target: MapLocation):
     # Choose target based on bot ID (i think this is also random)
-    dir = current_pos.direction_to(target)
+    # dir = choose_best_dir(target)
+    dir = get_location().direction_to(target)
 
     # Movement
     if can_move(dir):
@@ -575,11 +720,10 @@ def run_bug0(target: MapLocation):
                 move(directions[(i + idx) % len(directions)])
                 break
 
-    current_pos = get_location()
-    if not sense_map_info(current_pos).get_paint().is_ally() and can_attack(
-        current_pos
+    if not sense_map_info(get_location()).get_paint().is_ally() and can_attack(
+        get_location()
     ):
-        attack(current_pos)
+        attack(get_location())
 
 
 def run_bug1(target: MapLocation):
@@ -589,6 +733,7 @@ def run_bug1(target: MapLocation):
     global min_dist
     global target_idx
 
+    # dir = choose_best_dir(dir)
     dir = get_location().direction_to(target)
 
     if dir == Direction.CENTER:
@@ -631,17 +776,131 @@ def run_bug1(target: MapLocation):
                         tracing_dir = directions[(w + 2) % len(directions)]
                         break
 
-    current_pos = get_location()
-    if not sense_map_info(current_pos).get_paint().is_ally() and can_attack(
-        current_pos
+    if not sense_map_info(get_location()).get_paint().is_ally() and can_attack(
+        get_location()
     ):
-        attack(current_pos)
+        attack(get_location())
 
 
-buld_srp_location = get_location()
+# Draw horizontal lines
+def draw_line_H(x0, y0, x1, y1):
+    a = []
+    if x0 > x1:
+        x0, x1 = x1, x0
+        y0, y1 = y1, y0
+
+    dx = x1 - x0
+    dy = y1 - y0
+
+    dir = -1 if dy < 0 else 1
+    dy *= dir
+
+    if dx != 0:
+        y = y0
+        D = 2 * dy - dx
+        for i in range(dx + 1):
+            a.append((x0 + i, y))
+            if D >= 0:
+                y += dir
+                D = D - 2 * dx
+            D = D + 2 * dy
+    else:
+        for i in range(dy + 1):
+            a.append((x0, y0 + i))
+    return a
+
+
+# Draw vertical lines
+def draw_line_V(x0, y0, x1, y1):
+    a = []
+    if y0 > y1:
+        x0, x1 = x1, x0
+        y0, y1 = y1, y0
+
+    dx = x1 - x0
+    dy = y1 - y0
+
+    dir = -1 if dx < 0 else 1
+    dx *= dir
+
+    if dy != 0:
+        x = x0
+        D = 2 * dx - dy
+        for i in range(dy + 1):
+            a.append((x, y0 + i))
+            if D >= 0:
+                x += dir
+                D = D - 2 * dy
+            D = D + 2 * dx
+    else:
+        for i in range(dx + 1):
+            a.append((x0 + i, y0))
+    return a
+
+
+# Main func for draw lines
+def draw_line(x0, y0, x1, y1):
+    if abs(x1 - x0) > abs(y1 - y0):
+        return draw_line_H(x0, y0, x1, y1)
+    else:
+        return draw_line_V(x0, y0, x1, y1)
+
+
+def run_bug2(target: MapLocation):
+    global is_tracing
+    global tracing_dir
+    global obstacle_start_dist
+    global prev_target
+    global target_idx
+
+    prev_target = get_location()
+    # dir = choose_best_dir(target)
+    dir = get_location().direction_to(target)
+    if dir == Direction.CENTER:
+        target_idx += 1
+        target_idx = target_idx % len(targets[get_type() != UnitType.Soldier])
+        return
+
+    # scuffed bug2
+
+    line = []
+    if target != prev_target:
+        prev_target = target
+        line = draw_line(get_location().x, get_location().y, target.x, target.y)
+
+    if not is_tracing:
+        if can_move(dir):
+            move(dir)
+        else:
+            is_tracing = True
+            obstacle_start_dist = get_location().distance_squared_to(target)
+            tracing_dir = dir
+    else:
+        if (
+            int(get_location().x),
+            int(get_location().y),
+        ) in line and get_location().distance_squared_to(target) < obstacle_start_dist:
+            is_tracing = False
+        else:
+            if can_move(tracing_dir):
+                move(tracing_dir)
+                w = directions.index(tracing_dir)
+                w = (w + 2) % 8
+                tracing_dir = directions[w]
+            else:
+                w = directions.index(tracing_dir)
+                for i in range(0, 8):
+                    w -= 1
+                    w += 8
+                    w = w % 8
+                    if can_move(directions[w]):
+                        move(directions[w])
+                        tracing_dir = directions[(w + 2) % 8]
+                        break
 
 
 # build srp
+buld_srp_location = get_location()
 
 
 def paint_srp(center: MapLocation):
@@ -654,7 +913,7 @@ def paint_srp(center: MapLocation):
         if not can_attack(pattern_tile.get_map_location()):
             continue
 
-        if not inside_pattern_range(row_pos, col_pos):
+        if not inside_range(row_pos, col_pos):
             if not pattern_tile.get_paint().is_ally():
                 attack(get_location())
             continue
