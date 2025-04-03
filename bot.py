@@ -143,7 +143,7 @@ def turn():
         init()
 
     if robo_type.is_robot_type() and (
-        turn_count % 50 == 49
+        turn_count % 40 == 39
         or get_location().distance_squared_to(
             targets[get_type() != UnitType.Soldier][target_idx]
         )
@@ -191,12 +191,8 @@ def run_paint_tower():
 
 
 def run_defense_tower():
-    if (
-        (turn_count > 50)
-        and get_chips() > 2500
-        and not check_enemy_paint_in_ruins_pattern(get_location())
-    ):
-        disintegrate()
+    if get_chips() > 10000 and can_upgrade_tower(get_location()):
+        upgrade_tower(get_location())
 
 
 def spawn_robots():
@@ -268,9 +264,9 @@ def run_soldier():
         ruins_pattern_type = check_ruins_mark(cur_ruin.get_map_location())
         if ruins_pattern_type == None:
             ruins_pattern_type = UnitType.LEVEL_ONE_MONEY_TOWER
-            if random.randint(0, 1) == 0 and get_num_towers() > 3:
+            if random.randint(0, 2) == 0:
                 ruins_pattern_type = UnitType.LEVEL_ONE_PAINT_TOWER
-            if random.randint(0, 4) == 0 and get_num_towers() > 5:
+            if random.randint(0, 3) == 0 and get_num_towers() > 4:
                 ruins_pattern_type = UnitType.LEVEL_ONE_DEFENSE_TOWER
             mark_tower(cur_ruin.get_map_location(), ruins_pattern_type)
         else:
@@ -292,28 +288,28 @@ def run_soldier():
 
 
 def run_mopper():
-    nearby_tiles = sense_nearby_map_infos()
+    # nearby_tiles = sense_nearby_map_infos()
 
-    enemy_tiles = [None] * len(nearby_tiles)
-    num_enemy_tiles = 0
-    for tile in nearby_tiles:
-        if tile.get_paint().is_enemy():
-            enemy_tiles[num_enemy_tiles] = tile
-            num_enemy_tiles = num_enemy_tiles + 1
+    # enemy_tiles = [None] * len(nearby_tiles)
+    # num_enemy_tiles = 0
+    # for tile in nearby_tiles:
+    #     if tile.get_paint().is_enemy():
+    #         enemy_tiles[num_enemy_tiles] = tile
+    #         num_enemy_tiles = num_enemy_tiles + 1
 
-    enemy_tile = enemy_tiles[random.randint(0, len(enemy_tiles) - 1)]
-    if enemy_tile is not None:
-        target_loc = enemy_tile.get_map_location()
-        if can_attack(enemy_tile.get_map_location()):
-            attack(enemy_tile.get_map_location())
+    # enemy_tile = enemy_tiles[random.randint(0, len(enemy_tiles) - 1)]
+    # if enemy_tile is not None:
+    #     target_loc = enemy_tile.get_map_location()
+    #     if can_attack(enemy_tile.get_map_location()):
+    #         attack(enemy_tile.get_map_location())
 
+    mopper_mop()
     run_bug2(targets[get_type() != UnitType.Soldier][target_idx])
-    # mopper_mop()
     return
 
 
 def mopper_mop():
-    
+
     enemy_bots = [[None] * 3 for i in range(0, 3)]
     nearby_robots = sense_nearby_robots(radius_squared=2)
     for robot in nearby_robots:
@@ -357,41 +353,41 @@ def mopper_mop():
             best_mop_dir = dir
             best_do_mop_swing = do_mop_swing
 
-    log(f"Best heuristic for mopper is {best_mop_dir}")
     if best_mop_heur != None:
         if best_do_mop_swing and can_mop_swing(best_mop_dir):
             mop_swing(best_mop_dir)
-            log(f"{get_type()} mop swing in the {best_mop_dir} directions")
+            # log(f"{get_type()} mop swing in the {best_mop_dir} directions")
             set_timeline_marker("Mopper mop swing", 0, 0, 255)
         elif can_attack(get_location().add(dir)):
             attack(get_location().add(dir))
-            log(f"{get_type()} attack at {get_location().add(dir)}")
+            # log(f"{get_type()} attack at {get_location().add(dir)}")
             set_timeline_marker("Mopper attacked", 255, 0, 255)
 
 
 def run_splasher():
-    nearby_tiles = sense_nearby_map_infos()
-    non_ally_tiles = [None] * len(nearby_tiles)
-    num_non_ally_tiles = 0
-    for tile in nearby_tiles:
-        if not tile.get_paint().is_ally() and tile.is_passable():
-            non_ally_tiles[num_non_ally_tiles] = tile
-            num_non_ally_tiles = num_non_ally_tiles + 1
+    # nearby_tiles = sense_nearby_map_infos()
+    # non_ally_tiles = [None] * len(nearby_tiles)
+    # num_non_ally_tiles = 0
+    # for tile in nearby_tiles:
+    #     if not tile.get_paint().is_ally() and tile.is_passable():
+    #         non_ally_tiles[num_non_ally_tiles] = tile
+    #         num_non_ally_tiles = num_non_ally_tiles + 1
 
-    non_ally_tile = non_ally_tiles[random.randint(0, len(non_ally_tiles) - 1)]
+    # non_ally_tile = non_ally_tiles[random.randint(0, len(non_ally_tiles) - 1)]
 
-    if non_ally_tile is not None:
-        if can_attack(non_ally_tile.get_map_location()):
-            attack(non_ally_tile.get_map_location())
+    # if non_ally_tile is not None:
+    #     if can_attack(non_ally_tile.get_map_location()):
+    #         attack(non_ally_tile.get_map_location())
 
     run_bug2(targets[get_type() != UnitType.Soldier][target_idx])
-    # splasher_attack()
+    splasher_attack()
     return
 
 
 def splasher_attack():
-    splash_heur = [[0] * 7 for _ in range(0, 7)]
+    splash_heur = [[-1000] * 7 for _ in range(0, 7)]
     nearby_tiles = sense_nearby_map_infos(radius_squared=18)
+
     for tile in nearby_tiles:
         x = tile.get_map_location().x - get_location().x + 3
         y = tile.get_map_location().y - get_location().y + 3
@@ -403,23 +399,26 @@ def splasher_attack():
             splash_heur[x][y] = 1
         else:
             splash_heur[x][y] = 10
+
     best_attack_loc = MapLocation(-1, -1)
     best_attack_heur = None
     for x in range(1, len(splash_heur) - 1):
         for y in range(1, len(splash_heur[0]) - 1):
-            if not can_attack(MapLocation(x, y)):
+            if not can_attack(
+                MapLocation(x + get_location().x - 3, y + get_location().y - 3)
+            ):
                 continue
             sum_heur = 0
             for dx in range(-1, 2):
                 for dy in range(-1, 2):
                     sum_heur += splash_heur[x + dx][y + dy]
             if best_attack_heur == None or best_attack_heur < sum_heur:
-                best_attack_loc = MapLocation(x, y)
+                best_attack_loc = MapLocation(x + get_location().x - 3, y + get_location().y - 3)
                 best_attack_heur = sum_heur
 
     if best_attack_loc != MapLocation(-1, -1) and can_attack(best_attack_loc):
         attack(best_attack_loc)
-        log(f"{get_type()} attack at {best_attack_loc}")
+        # log(f"{get_type()} attack at {best_attack_loc}")
         set_timeline_marker("Splasher attacked", 255, 0, 0)
     return
 
@@ -854,8 +853,8 @@ def run_bug2(target: MapLocation):
     global target_idx
 
     prev_target = get_location()
-    # dir = choose_best_dir(target)
-    dir = get_location().direction_to(target)
+    dir = choose_best_dir(target)
+    # dir = get_location().direction_to(target)
     if dir == Direction.CENTER:
         target_idx += 1
         target_idx = target_idx % len(targets[get_type() != UnitType.Soldier])
@@ -1096,5 +1095,7 @@ def buld_srp():
     ):
         complete_resource_pattern(buld_srp_location)
         impossible_srp_locations.add(buld_srp_location.x, buld_srp_location.y)
+        set_timeline_marker("Build SRP", 127, 0, 255)
+        log(f"SRP built at {buld_srp_location}!")
     else:
         paint_srp(buld_srp_location)
